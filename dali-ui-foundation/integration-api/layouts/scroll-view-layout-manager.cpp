@@ -122,13 +122,13 @@ MeasuredSize ScrollViewLayoutManager::ArrangeChildren(ViewImpl* view, const Layo
     LayoutRect childBounds;
 
     // content인 경우만
-    childBounds.x      = childData.view.GetPositionX();
-    childBounds.y      = childData.view.GetPositionY();
+    childBounds.x      = childImpl.GetRequestedPositionX();
+    childBounds.y      = childImpl.GetRequestedPositionY();
     childBounds.width  = childData.measuredSize.width;
     childBounds.height = childData.measuredSize.height;
 
     // Arrange the child
-    childImpl.Arrange(childBounds);
+    ArrangeChild(view, &childImpl, childBounds);
     childData.arrangedBounds = childBounds;
 
     if(scrollImpl != nullptr)

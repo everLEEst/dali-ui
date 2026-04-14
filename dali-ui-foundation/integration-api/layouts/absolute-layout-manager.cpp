@@ -184,11 +184,11 @@ MeasuredSize AbsoluteLayoutManager::ArrangeChildren(ViewImpl* view, const Layout
     if(childImpl.IsLayoutModeStandalone())
     {
       Extents    standaloneMargin = childImpl.GetViewMargin();
-      LayoutRect childBounds(childImpl.GetPositionX() + static_cast<float>(standaloneMargin.start),
-                             childImpl.GetPositionY() + static_cast<float>(standaloneMargin.top),
+      LayoutRect childBounds(childImpl.GetRequestedPositionX() + static_cast<float>(standaloneMargin.start),
+                             childImpl.GetRequestedPositionY() + static_cast<float>(standaloneMargin.top),
                              childData.measuredSize.width,
                              childData.measuredSize.height);
-      childImpl.Arrange(childBounds);
+      ArrangeChild(view, &childImpl, childBounds);
       childData.arrangedBounds = childBounds;
       continue;
     }
@@ -236,7 +236,7 @@ MeasuredSize AbsoluteLayoutManager::ArrangeChildren(ViewImpl* view, const Layout
     childBounds.width  = w;
     childBounds.height = h;
 
-    childImpl.Arrange(childBounds);
+    ArrangeChild(view, &childImpl, childBounds);
     childData.arrangedBounds = childBounds;
   }
 

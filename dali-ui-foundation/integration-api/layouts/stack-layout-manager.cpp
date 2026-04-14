@@ -269,11 +269,11 @@ MeasuredSize StackLayoutManager::ArrangeChildren(ViewImpl* view, const LayoutRec
     if(childImpl.IsLayoutModeStandalone())
     {
       Extents    standaloneMargin = childImpl.GetViewMargin();
-      LayoutRect standaloneBounds(childImpl.GetPositionX() + static_cast<float>(standaloneMargin.start),
-                                  childImpl.GetPositionY() + static_cast<float>(standaloneMargin.top),
+      LayoutRect standaloneBounds(childImpl.GetRequestedPositionX() + static_cast<float>(standaloneMargin.start),
+                                  childImpl.GetRequestedPositionY() + static_cast<float>(standaloneMargin.top),
                                   childData.measuredSize.width,
                                   childData.measuredSize.height);
-      childImpl.Arrange(standaloneBounds);
+      ArrangeChild(view, &childImpl, standaloneBounds);
       childData.arrangedBounds = standaloneBounds;
       continue;
     }
@@ -318,7 +318,7 @@ MeasuredSize StackLayoutManager::ArrangeChildren(ViewImpl* view, const LayoutRec
       childBounds.x      = crossX;
       childBounds.y      = currentY + static_cast<float>(margin.top);
 
-      childImpl.Arrange(childBounds);
+      ArrangeChild(view, &childImpl, childBounds);
       childData.arrangedBounds = childBounds;
 
       currentY += slotHeight + mSpacing;
@@ -358,7 +358,7 @@ MeasuredSize StackLayoutManager::ArrangeChildren(ViewImpl* view, const LayoutRec
       childBounds.x      = currentX + static_cast<float>(margin.start);
       childBounds.y      = crossY;
 
-      childImpl.Arrange(childBounds);
+      ArrangeChild(view, &childImpl, childBounds);
       childData.arrangedBounds = childBounds;
 
       currentX += slotWidth + mSpacing;

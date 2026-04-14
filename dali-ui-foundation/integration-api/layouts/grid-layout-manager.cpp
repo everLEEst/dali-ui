@@ -225,7 +225,8 @@ void ComputeGridPositions(const std::vector<float>& rowHeights, const std::vecto
 
 void ArrangeGridChildrenToCells(ViewImpl::ChildContainer& children, const std::vector<float>& rowPositions,
                                 const std::vector<float>& colPositions, uint32_t rowCount, uint32_t colCount,
-                                float rowSpacing, float colSpacing, const std::function<ViewImpl&(Ui::View)>& getImpl)
+                                float rowSpacing, float colSpacing, const std::function<ViewImpl&(Ui::View)>& getImpl,
+                                const std::function<void(ViewImpl&, const LayoutRect&)>& arrangeChild)
 {
   for(auto& childData : children)
   {
@@ -316,7 +317,7 @@ void ArrangeGridChildrenToCells(ViewImpl::ChildContainer& children, const std::v
       }
     }
 
-    childImpl.Arrange(childBounds);
+    arrangeChild(childImpl, childBounds);
     childData.arrangedBounds = childBounds;
   }
 }
@@ -447,8 +448,12 @@ MeasuredSize GridLayoutManager::ArrangeChildren(ViewImpl* view, const LayoutRect
   ComputeGridPositions(rowHeights, colWidths, bounds, mRowSpacing, mColumnSpacing, rowCount, colCount, rowPositions,
                        colPositions);
 
+  auto arrangeChildCb = [this, view](ViewImpl& child, const LayoutRect& bounds)
+  {
+    ArrangeChild(view, &child, bounds);
+  };
   ArrangeGridChildrenToCells(children, rowPositions, colPositions, rowCount, colCount, mRowSpacing, mColumnSpacing,
-                             getImpl);
+                             getImpl, arrangeChildCb);
 
   // Arrange standalone children: place at RequestedPositionX/Y plus the
   // child's own margin in the parent's coordinate space (ignoring parent
@@ -461,11 +466,11 @@ MeasuredSize GridLayoutManager::ArrangeChildren(ViewImpl* view, const LayoutRect
       continue;
     }
     Extents    standaloneMargin = childImpl.GetViewMargin();
-    LayoutRect standaloneBounds(childImpl.GetPositionX() + static_cast<float>(standaloneMargin.start),
-                                childImpl.GetPositionY() + static_cast<float>(standaloneMargin.top),
+    LayoutRect standaloneBounds(childImpl.GetRequestedPositionX() + static_cast<float>(standaloneMargin.start),
+                                childImpl.GetRequestedPositionY() + static_cast<float>(standaloneMargin.top),
                                 childData.measuredSize.width,
                                 childData.measuredSize.height);
-    childImpl.Arrange(standaloneBounds);
+    ArrangeChild(view, &childImpl, standaloneBounds);
     childData.arrangedBounds = standaloneBounds;
   }
 

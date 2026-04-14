@@ -496,6 +496,48 @@ void ViewImpl::SetScaleY(float scaleY)
   Self().SetProperty(Actor::Property::SCALE_Y, scaleY);
 }
 
+void ViewImpl::SetLayoutScaleX(float scaleX)
+{
+  mLayoutScaleX = scaleX;
+  InvalidateMeasure();
+}
+
+float ViewImpl::GetLayoutScaleX() const
+{
+  return mLayoutScaleX;
+}
+
+void ViewImpl::SetLayoutScaleY(float scaleY)
+{
+  mLayoutScaleY = scaleY;
+  InvalidateMeasure();
+}
+
+float ViewImpl::GetLayoutScaleY() const
+{
+  return mLayoutScaleY;
+}
+
+float ViewImpl::GetEffectiveScaleX() const
+{
+  return mEffectiveScaleX;
+}
+
+float ViewImpl::GetEffectiveScaleY() const
+{
+  return mEffectiveScaleY;
+}
+
+float ViewImpl::GetRequestedPositionX() const
+{
+  return mRequestedPositionX;
+}
+
+float ViewImpl::GetRequestedPositionY() const
+{
+  return mRequestedPositionY;
+}
+
 bool ViewImpl::IsVisible() const
 {
   return Self().GetProperty<float>(Actor::Property::VISIBLE);
@@ -767,9 +809,18 @@ MeasuredSize ViewImpl::Measure(float widthConstraint, float heightConstraint)
     return mMeasuredSize;
   }
 
-  MeasuredSize measured          = OnMeasure(widthConstraint, heightConstraint);
-  measured                       = ApplyConstraints(measured);
-  mMeasuredSize                  = measured;
+  // Divide positive constraints by own LayoutScale so children see a smaller
+  // natural space.  WRAP_CONTENT (-1) and MATCH_PARENT (-2) are left as-is.
+  float nw = (widthConstraint > 0.0f && mLayoutScaleX != 1.0f) ? widthConstraint / mLayoutScaleX : widthConstraint;
+  float nh = (heightConstraint > 0.0f && mLayoutScaleY != 1.0f) ? heightConstraint / mLayoutScaleY : heightConstraint;
+
+  MeasuredSize natural = OnMeasure(nw, nh);
+  natural              = ApplyConstraints(natural);
+
+  // Multiply natural size back up to report the scaled size to the parent.
+  mMeasuredSize.width  = natural.width * mLayoutScaleX;
+  mMeasuredSize.height = natural.height * mLayoutScaleY;
+
   mLastMeasuredConstraint.width  = widthConstraint;
   mLastMeasuredConstraint.height = heightConstraint;
 
@@ -879,6 +930,17 @@ MeasuredSize ViewImpl::OnMeasure(float widthConstraint, float heightConstraint)
 
 MeasuredSize ViewImpl::Arrange(const LayoutRect& bounds)
 {
+  // Compute effective scale before OnArrange so every derived OnArrange
+  // (ViewImpl, LayoutImpl, ...) can rely on mEffectiveScaleX/Y being up-to-date.
+  //
+  // effectiveScale = own LayoutScale × accumulated ancestor scales
+  //               = bounds / (mMeasuredSize / ownScale)
+  //               = bounds * ownScale / mMeasuredSize
+  //
+  // When there is no LayoutScale anywhere in the tree the ratio is 1.
+  mEffectiveScaleX = (mMeasuredSize.width > 0.0f) ? bounds.width * mLayoutScaleX / mMeasuredSize.width : mLayoutScaleX;
+  mEffectiveScaleY = (mMeasuredSize.height > 0.0f) ? bounds.height * mLayoutScaleY / mMeasuredSize.height : mLayoutScaleY;
+
   MeasuredSize arrangedSize = OnArrange(bounds);
   mArrangedBounds           = bounds;
   mArrangeValid             = true;
@@ -926,9 +988,25 @@ MeasuredSize ViewImpl::OnArrange(const LayoutRect& bounds)
         childY         = padY + static_cast<float>(margin.top) + childImpl.mRequestedPositionY;
       }
 
-      LayoutRect childBounds(childX, childY, childW, childH);
-      childImpl.Arrange(childBounds);
-      childData.arrangedBounds = childBounds;
+      LayoutRect naturalChildBounds(childX, childY, childW, childH);
+      // Scale child bounds (position, size, and any embedded padding/margin) by
+      // this view's effective scale so descendants are genuinely rendered at the
+      // larger pixel size rather than being stretched by a render transform.
+      // childX/childY already incorporate parent padding and child margin, so
+      // multiplying by effectiveScale also scales those spacing values correctly.
+      if(mEffectiveScaleX != 1.0f || mEffectiveScaleY != 1.0f)
+      {
+        LayoutRect scaledChildBounds(childX * mEffectiveScaleX,
+                                     childY * mEffectiveScaleY,
+                                     childW * mEffectiveScaleX,
+                                     childH * mEffectiveScaleY);
+        childImpl.Arrange(scaledChildBounds);
+      }
+      else
+      {
+        childImpl.Arrange(naturalChildBounds);
+      }
+      childData.arrangedBounds = naturalChildBounds;
     }
   }
 

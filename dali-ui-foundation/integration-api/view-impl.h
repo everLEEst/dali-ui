@@ -190,6 +190,58 @@ public: // API (size, position, parent origin, pivot)
   void SetScaleY(float scaleY);
 
   /**
+   * @brief Sets the layout scale X factor.
+   *
+   * Scales this view and all descendants in the layout pipeline so that
+   * children are genuinely measured and rendered at the larger size.
+   * The scale propagates down: each ancestor's LayoutScale multiplies
+   * onto the final rendered size of every descendant.
+   *
+   * @param[in] scaleX The horizontal scale factor (1.0 = no change)
+   */
+  void SetLayoutScaleX(float scaleX);
+
+  /**
+   * @brief Gets the layout scale X factor.
+   */
+  float GetLayoutScaleX() const;
+
+  /**
+   * @brief Sets the layout scale Y factor.
+   *
+   * @param[in] scaleY The vertical scale factor (1.0 = no change)
+   */
+  void SetLayoutScaleY(float scaleY);
+
+  /**
+   * @brief Gets the layout scale Y factor.
+   */
+  float GetLayoutScaleY() const;
+
+  /**
+   * @brief Gets the effective (accumulated) scale X that this view applies to its children.
+   *
+   * Equals own LayoutScaleX multiplied by all ancestor LayoutScale values.
+   * Valid only after Arrange() has been called.
+   */
+  float GetEffectiveScaleX() const;
+
+  /**
+   * @brief Gets the effective (accumulated) scale Y that this view applies to its children.
+   */
+  float GetEffectiveScaleY() const;
+
+  /**
+   * @brief Gets the requested position X (layout property, unaffected by Arrange scaling).
+   */
+  float GetRequestedPositionX() const;
+
+  /**
+   * @brief Gets the requested position Y (layout property, unaffected by Arrange scaling).
+   */
+  float GetRequestedPositionY() const;
+
+  /**
    * @copydoc Dali::Ui::View::IsVisible
    */
   bool IsVisible() const;
@@ -809,6 +861,16 @@ private:
   Extents        mMargin;
   Extents        mPadding;
   Ui::LayoutMode mLayoutMode{Ui::LayoutMode::Default};
+
+  // LayoutScale: scales the layout-pipeline size of this view and propagates
+  // to all descendants. Distinct from Actor::SCALE (render transform).
+  float mLayoutScaleX{1.0f};
+  float mLayoutScaleY{1.0f};
+
+  // Effective scale = own LayoutScale × all ancestor LayoutScales.
+  // Computed during Arrange(); used to scale child bounds before child.Arrange().
+  float mEffectiveScaleX{1.0f};
+  float mEffectiveScaleY{1.0f};
 
   // Measure/Arrange State (cache-based)
   // mLastMeasuredConstraint.width < 0 means no valid measure cache

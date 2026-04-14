@@ -44,10 +44,18 @@ MeasuredSize LayoutManager::MeasureChild(Integration::ViewImpl* child, float wid
   return MeasuredSize(0.0f, 0.0f);
 }
 
-MeasuredSize LayoutManager::ArrangeChild(Integration::ViewImpl* child, const LayoutRect& bounds)
+MeasuredSize LayoutManager::ArrangeChild(Integration::ViewImpl* parent, Integration::ViewImpl* child, const LayoutRect& bounds)
 {
   if(child)
   {
+    float sx = parent ? parent->GetEffectiveScaleX() : 1.0f;
+    float sy = parent ? parent->GetEffectiveScaleY() : 1.0f;
+    if(sx != 1.0f || sy != 1.0f)
+    {
+      LayoutRect scaledBounds(bounds.x * sx, bounds.y * sy,
+                              bounds.width * sx, bounds.height * sy);
+      return child->Arrange(scaledBounds);
+    }
     return child->Arrange(bounds);
   }
   return MeasuredSize(0.0f, 0.0f);

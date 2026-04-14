@@ -187,12 +187,19 @@ MeasuredSize LayoutImpl::OnArrange(const LayoutRect& bounds)
   self.SetProperty(Actor::Property::SIZE_WIDTH, bounds.width);
   self.SetProperty(Actor::Property::SIZE_HEIGHT, bounds.height);
 
-  Extents    padding = GetViewPadding();
+  // Layout managers work in natural (unscaled) coordinate space.
+  // Divide bounds by effective scale so the manager sees the space that was
+  // measured, not the space after ancestor LayoutScale has been applied.
+  float      sx       = GetEffectiveScaleX();
+  float      sy       = GetEffectiveScaleY();
+  float      naturalW = (sx != 1.0f) ? bounds.width / sx : bounds.width;
+  float      naturalH = (sy != 1.0f) ? bounds.height / sy : bounds.height;
+  Extents    padding  = GetViewPadding();
   LayoutRect contentBounds;
   contentBounds.x      = static_cast<float>(padding.start);
   contentBounds.y      = static_cast<float>(padding.top);
-  contentBounds.width  = bounds.width - static_cast<float>(padding.start + padding.end);
-  contentBounds.height = bounds.height - static_cast<float>(padding.top + padding.bottom);
+  contentBounds.width  = naturalW - static_cast<float>(padding.start + padding.end);
+  contentBounds.height = naturalH - static_cast<float>(padding.top + padding.bottom);
 
   layoutManager->ArrangeChildren(this, contentBounds);
 

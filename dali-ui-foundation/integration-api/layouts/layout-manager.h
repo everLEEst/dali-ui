@@ -104,12 +104,16 @@ protected:
    * @brief Arranges a child view within the given bounds.
    *
    * Helper method for derived classes to arrange a child view.
+   * The parent's effective LayoutScale is applied to @p bounds before
+   * calling Arrange on the child, so descendants are genuinely rendered
+   * at the scaled pixel size rather than being stretched.
    *
+   * @param[in] parent The parent view (provides effective LayoutScale)
    * @param[in] child The child to arrange
-   * @param[in] bounds The bounds for the child
+   * @param[in] bounds The natural (unscaled) bounds for the child
    * @return The final arranged size
    */
-  MeasuredSize ArrangeChild(Integration::ViewImpl* child, const LayoutRect& bounds);
+  MeasuredSize ArrangeChild(Integration::ViewImpl* parent, Integration::ViewImpl* child, const LayoutRect& bounds);
 
   /**
    * @brief Gets the children container from a view.

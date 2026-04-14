@@ -235,7 +235,8 @@ FlexJustifyOffsets GetFlexJustifyOffsets(float freeSpace, FlexJustify justify, s
 void ArrangeOneFlexLine(FlexLine& line, ViewImpl::ChildContainer& children, const LayoutRect& bounds,
                         float contentWidth, float contentHeight, float& crossOffsetInOut, float& mainOffsetInOut,
                         float spacing, FlexAlign alignItems, bool isMainAxisHorizontal, bool isMainAxisReversed,
-                        const std::function<ViewImpl&(Ui::View)>& getImpl)
+                        const std::function<ViewImpl&(Ui::View)>&                getImpl,
+                        const std::function<void(ViewImpl&, const LayoutRect&)>& arrangeChild)
 {
   for(uint32_t idx : line.childIndices)
   {
@@ -319,7 +320,7 @@ void ArrangeOneFlexLine(FlexLine& line, ViewImpl::ChildContainer& children, cons
     childBounds.width  = std::max(0.0f, childBounds.width - static_cast<float>(margin.start + margin.end));
     childBounds.height = std::max(0.0f, childBounds.height - static_cast<float>(margin.top + margin.bottom));
 
-    childImpl.Arrange(childBounds);
+    arrangeChild(childImpl, childBounds);
     childData.arrangedBounds = childBounds;
   }
   crossOffsetInOut += line.crossSize;
@@ -598,8 +599,12 @@ MeasuredSize FlexLayoutManager::ArrangeChildren(ViewImpl* view, const LayoutRect
       float contentMain = IsMainAxisHorizontal() ? contentWidth : contentHeight;
       mainOffset        = contentMain - justify.mainOffset;
     }
+    auto arrangeChildCb = [this, view](ViewImpl& child, const LayoutRect& b)
+    {
+      ArrangeChild(view, &child, b);
+    };
     ArrangeOneFlexLine(line, children, bounds, contentWidth, contentHeight, crossOffset, mainOffset, justify.spacing,
-                       mAlignItems, IsMainAxisHorizontal(), IsMainAxisReversed(), getImpl);
+                       mAlignItems, IsMainAxisHorizontal(), IsMainAxisReversed(), getImpl, arrangeChildCb);
   }
 
   // Restore original measured sizes so repeated layout passes start clean.
@@ -619,11 +624,11 @@ MeasuredSize FlexLayoutManager::ArrangeChildren(ViewImpl* view, const LayoutRect
       continue;
     }
     Extents    standaloneMargin = childImpl.GetViewMargin();
-    LayoutRect standaloneBounds(childImpl.GetPositionX() + static_cast<float>(standaloneMargin.start),
-                                childImpl.GetPositionY() + static_cast<float>(standaloneMargin.top),
+    LayoutRect standaloneBounds(childImpl.GetRequestedPositionX() + static_cast<float>(standaloneMargin.start),
+                                childImpl.GetRequestedPositionY() + static_cast<float>(standaloneMargin.top),
                                 childData.measuredSize.width,
                                 childData.measuredSize.height);
-    childImpl.Arrange(standaloneBounds);
+    ArrangeChild(view, &childImpl, standaloneBounds);
     childData.arrangedBounds = standaloneBounds;
   }
 
