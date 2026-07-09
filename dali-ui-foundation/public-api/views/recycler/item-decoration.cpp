@@ -15,28 +15,21 @@
  *
  */
 
-#include <dali-ui-foundation/public-api/views/recycler/items-layouter-impl.h>
+#include <dali-ui-foundation/public-api/views/recycler/item-decoration.h>
 
 namespace Dali
 {
 namespace Ui
 {
 
-ItemsLayouterImpl::~ItemsLayouterImpl() = default;
-
-Dali::Signal<void()>& ItemsLayouterImpl::LayoutInvalidatedSignal()
+ItemDecoration::~ItemDecoration()
 {
-  return mLayoutInvalidatedSignal;
+  mDestroyedSignal.Emit(*this);
 }
 
-void ItemsLayouterImpl::InvalidateLayout()
+Dali::Signal<void(ItemDecoration&)>& ItemDecoration::DestroyedSignal()
 {
-  mLayoutInvalidatedSignal.Emit();
-}
-
-void ItemsLayouterImpl::OnDecorationChanged()
-{
-  InvalidateLayout();
+  return mDestroyedSignal;
 }
 
 } // namespace Ui

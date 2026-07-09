@@ -113,6 +113,12 @@ public:
   // Called when the adapter is replaced or cleared; discard cached state.
   virtual void OnAdapterChanged() = 0;
 
+  // Called when the set of ItemDecorations changes (add/remove).
+  // Subclasses must clear any cached per-item extents that include decoration
+  // offsets. Unlike OnAdapterChanged, scroll offset is NOT reset.
+  // The default implementation calls InvalidateLayout() only.
+  virtual void OnDecorationChanged();
+
   // Emitted by InvalidateLayout() when the layouter needs a full relayout
   // (e.g. after SetItemExtent / SetItemSpacing / SetOrientation).
   //

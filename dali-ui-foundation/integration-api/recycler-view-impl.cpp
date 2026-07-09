@@ -23,6 +23,7 @@
 #include <dali-ui-foundation/public-api/views/scroll/bounce-edge-effect.h>
 #include <dali/devel-api/object/type-registry-helper.h>
 #include <dali/devel-api/object/type-registry.h>
+#include <dali/integration-api/debug.h>
 #include <dali/public-api/actors/actor.h>
 #include <dali/public-api/animation/alpha-function.h>
 #include <dali/public-api/animation/animation.h>
@@ -85,7 +86,7 @@ struct RecyclerViewImpl::RecyclerImpl : public Recycler
       return View{};
     }
 
-    const uint32_t viewType = rv.mAdapter->GetItemViewType(position);
+    const uint32_t viewType = rv.mAdapter.GetItemViewType(position);
     return rv.ObtainItemView(position, viewType);
   }
 
@@ -108,7 +109,7 @@ struct RecyclerViewImpl::RecyclerImpl : public Recycler
 
   uint32_t GetItemCount() const override
   {
-    return rv.mAdapter ? rv.mAdapter->GetItemCount() : 0u;
+    return rv.mAdapter ? rv.mAdapter.GetItemCount() : 0u;
   }
 
   float GetViewportExtent() const override
@@ -131,6 +132,39 @@ struct RecyclerViewImpl::RecyclerImpl : public Recycler
     return rv.mCacheAfter;
   }
 
+  ItemOffsets GetDecorationOffsets(uint32_t position) const override
+  {
+    if(rv.mDecorations.empty())
+    {
+      return {};
+    }
+
+    const ItemViewHolder* holder = nullptr;
+    for(const auto& h : rv.mActiveItems)
+    {
+      if(h.position == position)
+      {
+        holder = &h;
+        break;
+      }
+    }
+    if(!holder)
+    {
+      return {};
+    }
+
+    ItemOffsets total;
+    for(auto* dec : rv.mDecorations)
+    {
+      const ItemOffsets offs = dec->GetItemOffsets(*holder);
+      total.left += offs.left;
+      total.top += offs.top;
+      total.right += offs.right;
+      total.bottom += offs.bottom;
+    }
+    return total;
+  }
+
   RecyclerViewImpl& rv;
 };
 
@@ -145,7 +179,7 @@ RecyclerViewImplPtr RecyclerViewImpl::New()
 
 RecyclerViewImpl::RecyclerViewImpl()
 : LayoutImpl(),
-  mAdapter(nullptr),
+  mAdapter(),
   mLayouter(),
   mRecyclerImpl(std::make_unique<RecyclerImpl>(*this)),
   mScroller(),
@@ -175,14 +209,7 @@ RecyclerViewImpl::RecyclerViewImpl()
 
 RecyclerViewImpl::~RecyclerViewImpl()
 {
-  // Adapter and layouter signals: ConnectionTracker auto-disconnects all slots
-  // registered via Connect(this, ...) when `this` is destroyed. No manual
-  // disconnect is needed for LayoutInvalidatedSignal or DataChangedSignal here.
-  if(mAdapter)
-  {
-    mAdapter->DestroyedSignal().Disconnect(this, &RecyclerViewImpl::OnAdapterDestroyed);
-    mAdapter->DataChangedSignal().Disconnect(this, &RecyclerViewImpl::OnAdapterDataChanged);
-  }
+  // ConnectionTracker (inherited via BaseObject) auto-disconnects all slots on destroy.
   AbortScroll();
   RecycleAll();
   mRecycledItems.clear();
@@ -213,23 +240,6 @@ void RecyclerViewImpl::OnInitialize()
   FocusManager::Get().FocusChangedSignal().Connect(this, &RecyclerViewImpl::OnFocusManagerChanged);
 }
 
-void RecyclerViewImpl::OnAdapterDestroyed(ItemAdapter& /*adapter*/)
-{
-  // Adapter is being destroyed — clear our reference without calling back into it.
-  CancelScrollAnimation();
-  RecycleAll();
-  mRecycledItems.clear();
-  mAdapter = nullptr;
-  if(mLayouter)
-  {
-    mLayouter.GetImpl().OnAdapterChanged();
-  }
-  FinishEdgeEffects();
-  UpdateScrollerSize();
-  ApplyScrollerPosition();
-  UpdateScrollBar();
-}
-
 void RecyclerViewImpl::OnAdapterDataChanged(const ItemAdapter::ChangeInfo& info)
 {
   if(!mLayouter || !mAdapter)
@@ -243,11 +253,11 @@ void RecyclerViewImpl::OnAdapterDataChanged(const ItemAdapter::ChangeInfo& info)
     {
       // Caller guarantees sizes are unchanged — rebind active views only.
       const uint32_t end = info.position + info.count;
-      for(auto& record : mActiveItems)
+      for(auto& holder : mActiveItems)
       {
-        if(record.position >= info.position && record.position < end)
+        if(holder.position >= info.position && holder.position < end)
         {
-          mAdapter->BindItemView(record.view, record.position);
+          mAdapter.BindViewHolder(holder);
         }
       }
       return; // No layout change needed.
@@ -339,25 +349,27 @@ void RecyclerViewImpl::OnLayoutInvalidated()
   UpdateScrollBar();
 }
 
-void RecyclerViewImpl::SetAdapter(ItemAdapter& adapter)
+void RecyclerViewImpl::SetAdapter(ItemAdapter adapter)
 {
-  if(mAdapter == &adapter)
+  if(mAdapter == adapter)
   {
     return;
   }
 
   if(mAdapter)
   {
-    mAdapter->DestroyedSignal().Disconnect(this, &RecyclerViewImpl::OnAdapterDestroyed);
-    mAdapter->DataChangedSignal().Disconnect(this, &RecyclerViewImpl::OnAdapterDataChanged);
+    mAdapter.DataChangedSignal().Disconnect(this, &RecyclerViewImpl::OnAdapterDataChanged);
   }
 
   AbortScroll();
   RecycleAll();
   mRecycledItems.clear();
-  mAdapter = &adapter;
-  mAdapter->DestroyedSignal().Connect(this, &RecyclerViewImpl::OnAdapterDestroyed);
-  mAdapter->DataChangedSignal().Connect(this, &RecyclerViewImpl::OnAdapterDataChanged);
+  mAdapter = std::move(adapter);
+
+  if(mAdapter)
+  {
+    mAdapter.DataChangedSignal().Connect(this, &RecyclerViewImpl::OnAdapterDataChanged);
+  }
 
   if(mLayouter)
   {
@@ -365,7 +377,7 @@ void RecyclerViewImpl::SetAdapter(ItemAdapter& adapter)
   }
   FinishEdgeEffects();
 
-  if(mLayouter)
+  if(mLayouter && mAdapter)
   {
     mLayouter.GetImpl().OnLayoutChildren(*mRecyclerImpl);
   }
@@ -375,7 +387,7 @@ void RecyclerViewImpl::SetAdapter(ItemAdapter& adapter)
   UpdateScrollBar();
 }
 
-ItemAdapter* RecyclerViewImpl::GetAdapter() const
+ItemAdapter RecyclerViewImpl::GetAdapter() const
 {
   return mAdapter;
 }
@@ -384,14 +396,13 @@ void RecyclerViewImpl::ClearAdapter()
 {
   if(mAdapter)
   {
-    mAdapter->DestroyedSignal().Disconnect(this, &RecyclerViewImpl::OnAdapterDestroyed);
-    mAdapter->DataChangedSignal().Disconnect(this, &RecyclerViewImpl::OnAdapterDataChanged);
+    mAdapter.DataChangedSignal().Disconnect(this, &RecyclerViewImpl::OnAdapterDataChanged);
   }
 
   AbortScroll();
   RecycleAll();
   mRecycledItems.clear();
-  mAdapter = nullptr;
+  mAdapter.Reset();
 
   if(mLayouter)
   {
@@ -723,17 +734,21 @@ void RecyclerViewImpl::UpdateScrollBar()
 
 void RecyclerViewImpl::RecycleAll()
 {
-  for(auto& record : mActiveItems)
+  for(auto& holder : mActiveItems)
   {
-    if(mAdapter && record.view)
+    for(auto* dec : mDecorations)
     {
-      mAdapter->ItemViewRecycled(record.view, record.viewType);
+      dec->OnItemRecycled(holder);
     }
-    if(record.view && mScroller)
+    if(mAdapter && holder.view)
     {
-      mScroller.Remove(record.view);
+      mAdapter.RecycleViewHolder(holder);
     }
-    mRecycledItems.push_back(record);
+    if(holder.view && mScroller)
+    {
+      mScroller.Remove(holder.view);
+    }
+    mRecycledItems.push_back(holder);
   }
   mActiveItems.clear();
 }
@@ -745,17 +760,21 @@ void RecyclerViewImpl::RecycleRecord(size_t index)
     return;
   }
 
-  ItemRecord record = mActiveItems[index];
-  if(mAdapter && record.view)
+  ItemViewHolder holder = mActiveItems[index];
+  for(auto* dec : mDecorations)
   {
-    mAdapter->ItemViewRecycled(record.view, record.viewType);
+    dec->OnItemRecycled(holder);
   }
-  if(record.view && mScroller)
+  if(mAdapter && holder.view)
   {
-    mScroller.Remove(record.view);
+    mAdapter.RecycleViewHolder(holder);
+  }
+  if(holder.view && mScroller)
+  {
+    mScroller.Remove(holder.view);
   }
   mActiveItems.erase(mActiveItems.begin() + static_cast<std::ptrdiff_t>(index));
-  mRecycledItems.push_back(record);
+  mRecycledItems.push_back(holder);
 }
 
 View RecyclerViewImpl::ObtainItemView(uint32_t position, uint32_t viewType)
@@ -764,31 +783,58 @@ View RecyclerViewImpl::ObtainItemView(uint32_t position, uint32_t viewType)
   {
     if(mRecycledItems[i].viewType == viewType)
     {
-      View view = mRecycledItems[i].view;
+      ItemViewHolder holder = mRecycledItems[i];
       mRecycledItems.erase(mRecycledItems.begin() + static_cast<std::ptrdiff_t>(i));
-      mAdapter->BindItemView(view, position);
-      mScroller.Add(view);
-      ItemRecord record;
-      record.position = position;
-      record.viewType = viewType;
-      record.view     = view;
-      mActiveItems.push_back(record);
-      return view;
+      holder.position = position;
+      mAdapter.BindViewHolder(holder);
+      mScroller.Add(holder.view);
+      mActiveItems.push_back(holder);
+      for(auto* dec : mDecorations)
+      {
+        dec->OnItemActivated(mActiveItems.back(), mScroller);
+      }
+      return holder.view;
     }
   }
 
-  View view = mAdapter->CreateItemView(viewType);
-  if(view)
+  ItemViewHolder holder;
+  holder.position = position;
+  holder.viewType = viewType;
+  mAdapter.CreateViewHolder(holder);
+  if(holder.view)
   {
-    mAdapter->BindItemView(view, position);
-    mScroller.Add(view);
-    ItemRecord record;
-    record.position = position;
-    record.viewType = viewType;
-    record.view     = view;
-    mActiveItems.push_back(record);
+    mAdapter.BindViewHolder(holder);
+    mScroller.Add(holder.view);
+    mActiveItems.push_back(holder);
+    for(auto* dec : mDecorations)
+    {
+      dec->OnItemActivated(mActiveItems.back(), mScroller);
+    }
   }
-  return view;
+  return holder.view;
+}
+
+void RecyclerViewImpl::NotifyDecorationBoundsUpdated()
+{
+  if(mDecorations.empty() || !mLayouter)
+  {
+    return;
+  }
+
+  for(auto* dec : mDecorations)
+  {
+    dec->OnLayoutStart();
+  }
+
+  const float crossExtent = GetCrossExtent();
+  for(const auto& holder : mActiveItems)
+  {
+    const LayoutRect bounds = mLayouter.GetItemBounds(holder.position, crossExtent);
+    for(auto* dec : mDecorations)
+    {
+      dec->OnItemBoundsUpdated(holder, bounds);
+    }
+  }
 }
 
 float RecyclerViewImpl::GetViewportExtent() const
@@ -1054,6 +1100,67 @@ void RecyclerViewImpl::ApplyScrollerPosition()
     Dali::Ui::Extension::SetPositionX(mScroller, 0.0f);
     Dali::Ui::Extension::SetPositionY(mScroller, -offset);
   }
+
+  NotifyDecorationBoundsUpdated();
+}
+
+void RecyclerViewImpl::AddItemDecoration(ItemDecoration& decoration)
+{
+  if(std::find(mDecorations.begin(), mDecorations.end(), &decoration) != mDecorations.end())
+  {
+    DALI_LOG_ERROR("RecyclerView: decoration already added; ignoring duplicate AddItemDecoration call.\n");
+    return;
+  }
+  mDecorations.push_back(&decoration);
+  decoration.DestroyedSignal().Connect(this, &RecyclerViewImpl::OnItemDecorationDestroyed);
+
+  // Sync new decoration with items already active in the scene.
+  // OnDecorationChanged triggers RecycleAllViews → OnItemRecycled for all decorations
+  // including this new one. Without this activation pass the new decoration would receive
+  // OnItemRecycled before it ever saw OnItemActivated, breaking activate/recycle balance.
+  for(auto& holder : mActiveItems)
+  {
+    decoration.OnItemActivated(holder, mScroller);
+  }
+
+  if(mLayouter)
+  {
+    mLayouter.GetImpl().OnDecorationChanged();
+  }
+}
+
+void RecyclerViewImpl::RemoveItemDecoration(ItemDecoration& decoration)
+{
+  const auto it = std::find(mDecorations.begin(), mDecorations.end(), &decoration);
+  if(it == mDecorations.end())
+  {
+    DALI_LOG_ERROR("RecyclerView: decoration not registered; ignoring RemoveItemDecoration call.\n");
+    return;
+  }
+
+  // Give the decoration a chance to clean up auxiliary views it created for each active item.
+  for(const auto& holder : mActiveItems)
+  {
+    decoration.OnItemRecycled(holder);
+  }
+  decoration.DestroyedSignal().Disconnect(this, &RecyclerViewImpl::OnItemDecorationDestroyed);
+  mDecorations.erase(it);
+  if(mLayouter)
+  {
+    mLayouter.GetImpl().OnDecorationChanged();
+  }
+}
+
+void RecyclerViewImpl::OnItemDecorationDestroyed(ItemDecoration& decoration)
+{
+  // Derived destructor has already run: do NOT call virtual methods on &decoration.
+  // The decoration is responsible for cleaning up its own auxiliary views in its destructor.
+  mDecorations.erase(std::remove(mDecorations.begin(), mDecorations.end(), &decoration),
+                     mDecorations.end());
+  if(mLayouter)
+  {
+    mLayouter.GetImpl().OnDecorationChanged();
+  }
 }
 
 void RecyclerViewImpl::CancelScrollAnimation()
@@ -1226,18 +1333,18 @@ bool RecyclerViewImpl::IsAtScrollBoundary(FocusDirection dir) const
 
 uint32_t RecyclerViewImpl::FindActiveItemPosition(View view) const
 {
-  for(const auto& record : mActiveItems)
+  for(const auto& holder : mActiveItems)
   {
-    if(record.view == view) return record.position;
+    if(holder.view == view) return holder.position;
   }
   return INVALID_ITEM_POSITION;
 }
 
 View RecyclerViewImpl::FindActiveView(uint32_t position) const
 {
-  for(const auto& record : mActiveItems)
+  for(const auto& holder : mActiveItems)
   {
-    if(record.position == position) return record.view;
+    if(holder.position == position) return holder.view;
   }
   return View();
 }
@@ -1245,7 +1352,7 @@ View RecyclerViewImpl::FindActiveView(uint32_t position) const
 uint32_t RecyclerViewImpl::NextItemPosition(uint32_t pos, FocusDirection dir) const
 {
   if(!mAdapter) return INVALID_ITEM_POSITION;
-  const uint32_t count = mAdapter->GetItemCount();
+  const uint32_t count = mAdapter.GetItemCount();
   if(IsForwardDirection(dir))
   {
     return (pos + 1u < count) ? pos + 1u : INVALID_ITEM_POSITION;
@@ -1267,7 +1374,7 @@ void RecyclerViewImpl::TriggerKeyEdgeFeedback(FocusDirection dir)
 
 void RecyclerViewImpl::ScrollToItemMakeVisible(uint32_t position, bool animate)
 {
-  if(!mLayouter || !mAdapter || position >= mAdapter->GetItemCount()) return;
+  if(!mLayouter || !mAdapter || position >= mAdapter.GetItemCount()) return;
 
   const float      curOffset  = mScrollAnimation ? SyncScrollOffsetFromScroller()
                                                  : mLayouter.ComputeScrollOffset();
@@ -1326,7 +1433,16 @@ bool RecyclerViewImpl::OnKeyRepeatTimerTick()
       const uint32_t next = NextItemPosition(mKeyRepeatTargetPos, mKeyRepeatDir);
       if(next == INVALID_ITEM_POSITION)
       {
+        // No more items in this direction but we may not be at the scroll boundary yet
+        // (e.g. a non-focusable group header at position 0 is visible but the viewport
+        // hasn't scrolled to offset 0). Step-scroll to the boundary and keep the timer.
+        if(!IsAtScrollBoundary(mKeyRepeatDir))
+        {
+          ScrollBy(IsForwardDirection(mKeyRepeatDir) ? mKeyScrollStep : -mKeyScrollStep, false);
+          return true;
+        }
         mKeyRepeatTargetPos = INVALID_ITEM_POSITION;
+        TriggerKeyEdgeFeedback(mKeyRepeatDir);
         return false;
       }
       mKeyRepeatTargetPos = next;
@@ -1398,6 +1514,11 @@ View RecyclerViewImpl::OnFocusNavigationRequested(View currentFocusedView, Focus
   uint32_t nextPos = NextItemPosition(curPos, direction);
   if(nextPos == INVALID_ITEM_POSITION)
   {
+    if(!IsAtScrollBoundary(direction))
+    {
+      ScrollBy(IsForwardDirection(direction) ? mKeyScrollStep : -mKeyScrollStep, true);
+      return currentFocusedView;
+    }
     TriggerKeyEdgeFeedback(direction);
     return View(); // Let FocusFinder exit to neighboring view.
   }
@@ -1416,6 +1537,14 @@ View RecyclerViewImpl::OnFocusNavigationRequested(View currentFocusedView, Focus
     }
     if(scanPos == INVALID_ITEM_POSITION)
     {
+      // All remaining items in this direction are non-focusable (e.g. group headers).
+      // If the scroll hasn't reached the boundary yet, step-scroll toward it instead
+      // of firing the edge feedback immediately.
+      if(!IsAtScrollBoundary(direction))
+      {
+        ScrollBy(IsForwardDirection(direction) ? mKeyScrollStep : -mKeyScrollStep, true);
+        return currentFocusedView;
+      }
       TriggerKeyEdgeFeedback(direction);
       return View();
     }
@@ -1475,7 +1604,7 @@ bool RecyclerViewImpl::OnKeyEvent(const Dali::KeyEvent& event)
   if(keyName == "Home" || keyName == "End")
   {
     const bool     toEnd   = (keyName == "End");
-    const uint32_t targetP = toEnd ? mAdapter->GetItemCount() - 1u : 0u;
+    const uint32_t targetP = toEnd ? mAdapter.GetItemCount() - 1u : 0u;
     mKeyRepeatTargetPos    = targetP;
     mKeyRepeatDir          = toEnd ? FocusDirection::DOWN : FocusDirection::UP;
     ScrollToItemMakeVisible(targetP, true);
